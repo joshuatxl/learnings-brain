@@ -15,6 +15,40 @@ function el(tag, className, text) {
   return node;
 }
 
+// Escape first, so nothing in the model's answer can inject markup -- only
+// then apply a small, fixed set of markdown transforms to the safe string.
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function inlineMarkdown(escaped) {
+  return escaped
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+}
+
+// Answers are plain prose, occasional bullet lists, **bold** and `code` --
+// not full markdown (no links, tables, nested lists), so a small hand-rolled
+// renderer covers it without pulling in a library.
+function renderAnswer(text) {
+  const blocks = [];
+  let list = null;
+  for (const raw of (text || "").split("\n")) {
+    const line = raw.trim();
+    const bullet = line.match(/^[-*]\s+(.+)/);
+    if (bullet) {
+      if (!list) blocks.push((list = []));
+      list.push(`<li>${inlineMarkdown(escapeHtml(bullet[1]))}</li>`);
+    } else {
+      list = null;
+      if (line) blocks.push(`<p>${inlineMarkdown(escapeHtml(line))}</p>`);
+    }
+  }
+  return blocks.map((b) => (Array.isArray(b) ? `<ul>${b.join("")}</ul>` : b)).join("");
+}
+
 function renderCitations(citations) {
   const facts = citations?.facts ?? [];
   const notes = citations?.notes ?? [];
@@ -74,7 +108,7 @@ async function ask(question) {
       answerEl.classList.add("error");
       answerEl.textContent = data.error || "Something went wrong. Please try again later.";
     } else {
-      answerEl.textContent = data.answer || "(empty answer)";
+      answerEl.innerHTML = renderAnswer(data.answer) || "(empty answer)";
       const cites = renderCitations(data.citations);
       if (cites) turn.appendChild(cites);
     }
