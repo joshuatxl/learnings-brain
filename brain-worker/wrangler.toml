@@ -1,0 +1,39 @@
+name = "learnings-brain"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Read-only Worker: serves POST /ask against the memory built by the
+# GitHub Action ingest pipeline. No write endpoints exist here on purpose —
+# see ../README.md.
+
+[ai]
+binding = "AI"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "brain"
+database_id = "e25c035e-a496-4e34-a859-9e909d52fcba"
+
+[[vectorize]]
+binding = "FACTS_INDEX"
+index_name = "brain-facts"
+
+[[vectorize]]
+binding = "EPISODES_INDEX"
+index_name = "brain-episodes"
+
+[vars]
+# Restrict CORS to the site origin once it's known.
+ALLOWED_ORIGIN = "https://joshuatxl.github.io"
+MODEL = "gemini-3.6-flash"
+EMBED_MODEL = "@cf/baai/bge-small-en-v1.5"
+
+# Bundle skills.md into the Worker as a plain string import.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+fallthrough = true
+
+# Secrets (never set here — see ../README.md Phase 3):
+#   npx wrangler secret put GEMINI_API_KEY

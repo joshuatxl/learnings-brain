@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Josh's learnings</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Josh's learnings</h1>
+    <p class="tagline">A "second brain" where I store what I've learned about data and AI from work, studies, and self-learning. Ask it something about data and AI, and see if it has an answer for you.</p>
+  </header>
+
+  <main id="thread" aria-live="polite"></main>
+
+  <form id="ask-form" class="composer">
+    <input id="question" type="text" placeholder="What have I learned about…" autocomplete="off" maxlength="500" required>
+    <button id="submit" type="submit">Ask</button>
+  </form>
+
+  <p class="footnote"><a href="https://github.com/joshuatxl/learnings-brain" target="_blank" rel="noopener">Github repo</a></p>
+
+  <script src="app.js"></script>
+</body>
+</html>

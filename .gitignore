@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node / wrangler
+node_modules/
+.wrangler/
+
+# Secrets
+.env
+.dev.vars
+
+# DeepEval run artifacts (eval/)
+.deepeval*
+deepeval-results/
+
+# Local-only template, never ingested (not a real learning)
+learnings/TEMPLATE.md
+brain-worker/node_modules/
+"README.md" 

@@ -1,0 +1,43 @@
+name: Ingest learnings
+
+# Only runs on pushes to main (i.e. only people with write access to this
+# repo) plus a daily safety-net run. Never on pull_request, so a fork's PR
+# never sees these secrets. This is the entire write path to the brain —
+# the Worker itself has no write endpoint.
+on:
+  push:
+    branches: [main]
+    paths: ['learnings/**', '.github/workflows/ingest.yml']
+  schedule:
+    - cron: '0 20 * * *'   # daily safety net: force-flush anything pending
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Sync notes and consolidate
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            python -m ingest.pipeline --force
+          else
+            python -m ingest.pipeline
+          fi
