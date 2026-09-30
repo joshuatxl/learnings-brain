@@ -50,10 +50,20 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px 16px;
-  white-space: pre-wrap;
 }
-.a.error { background: var(--danger-soft); border-color: #f0c9c4; color: var(--danger); }
+.a.error { background: var(--danger-soft); border-color: #f0c9c4; color: var(--danger); white-space: pre-wrap; }
 .a.pending { color: var(--ink-faint); font-style: italic; }
+.a p { margin: 0 0 0.85em; }
+.a p:last-child, .a ul:last-child { margin-bottom: 0; }
+.a ul { margin: 0 0 0.85em; padding-left: 1.3em; }
+.a li { margin: 0 0 0.3em; }
+.a code {
+  font: 13px/1.4 ui-monospace, "SF Mono", Consolas, monospace;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
 
 .citations { margin-top: 10px; font-size: 13px; color: var(--ink-soft); }
 .citations summary { cursor: pointer; color: var(--ink-faint); user-select: none; }
