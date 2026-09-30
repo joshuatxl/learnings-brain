@@ -21,6 +21,11 @@ export interface Env {
 }
 
 const TOP_K = 5;
+// Cosine similarity floor for a Vectorize match to count as relevant at all --
+// without this, topK always returns its 5 "closest" results even when none
+// are actually related to the question. Calibrated against real matches
+// (0.617-0.768) on this corpus; conservative enough not to cut genuine hits.
+const MIN_SCORE = 0.45;
 const MAX_QUESTION_CHARS = 500;
 const MAX_OUTPUT_TOKENS = 400; // shorter cap = Gemini finishes generating sooner
 const RECENT_CHARS = 600; // most of a recent (not-matched) note that goes into the prompt
@@ -82,7 +87,7 @@ interface EpisodeChunk {
 /** Vectorize returns fact ids only; fetch the facts themselves from D1. */
 async function searchFacts(env: Env, vector: number[]): Promise<Fact[]> {
   const result = await env.FACTS_INDEX.query(vector, { topK: TOP_K, returnMetadata: "none" });
-  const ids = result.matches.map((m) => m.id);
+  const ids = result.matches.filter((m) => m.score >= MIN_SCORE).map((m) => m.id);
   if (!ids.length) return [];
   const placeholders = ids.map(() => "?").join(",");
   const rows = await env.DB.prepare(
@@ -98,6 +103,7 @@ async function searchFacts(env: Env, vector: number[]): Promise<Fact[]> {
 async function searchEpisodes(env: Env, vector: number[]): Promise<EpisodeChunk[]> {
   const result = await env.EPISODES_INDEX.query(vector, { topK: TOP_K, returnMetadata: "all" });
   return result.matches.flatMap((m) => {
+    if (m.score < MIN_SCORE) return [];
     const md = (m.metadata ?? {}) as Record<string, string | number>;
     if (!md.text) return [];
     return [
@@ -145,7 +151,12 @@ async function askGemini(env: Env, prompt: string): Promise<string> {
   });
   if (!res.ok) throw new GeminiError(res.status, await res.text());
   const data = (await res.json()) as any;
-  return (data.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  const text = parts.map((p: any) => p.text ?? "").join("").trim();
+  if (!text) {
+    console.error("empty Gemini answer, finishReason:", data.candidates?.[0]?.finishReason, "parts:", parts.length);
+  }
+  return text;
 }
 
 function bulletList(items: string[]): string {

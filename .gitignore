@@ -19,4 +19,4 @@ deepeval-results/
 # Local-only template, never ingested (not a real learning)
 learnings/TEMPLATE.md
 brain-worker/node_modules/
-"README.md" 
+README.md
