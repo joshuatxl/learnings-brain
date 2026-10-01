@@ -185,12 +185,14 @@ async function handleAsk(request: Request, env: Env, origin: string): Promise<Re
   // A recent note is redundant if one of its passages already matched, and is
   // capped so a long note can't bloat the prompt (a longer prompt is slower).
   const matchedNotes = new Set(chunks.map((c) => c.entryId));
-  const episodeLines = [
-    ...chunks.map((c) => `[${c.date} · ${c.title}${c.heading ? ` § ${c.heading}` : ""}] ${c.text}`),
-    ...recent
-      .filter((e) => !matchedNotes.has(e.id))
-      .map((e) => `[${e.created_at.slice(0, 10)}] ${e.text.slice(0, RECENT_CHARS)}`),
-  ];
+  const matchedLines = chunks.map((c) => `[${c.date} · ${c.title}${c.heading ? ` § ${c.heading}` : ""}] ${c.text}`);
+  const recentLines = recent
+    .filter((e) => !matchedNotes.has(e.id))
+    .map((e) => `[${e.created_at.slice(0, 10)}] ${e.text.slice(0, RECENT_CHARS)}`);
+  // Gemini sees both -- recency is genuinely useful context -- but only
+  // genuine similarity matches are shown as "Sources", so citations never
+  // list a note just because it happens to be new and unrelated.
+  const episodeLines = [...matchedLines, ...recentLines];
 
   const factLines = facts.map((f) => `(${f.id}) ${f.text}${f.topic ? ` [${f.topic}]` : ""}`);
 
@@ -220,7 +222,7 @@ async function handleAsk(request: Request, env: Env, origin: string): Promise<Re
       answer,
       citations: {
         facts: facts.map((f) => ({ id: f.id, text: f.text, topic: f.topic })),
-        notes: episodeLines,
+        notes: matchedLines,
       },
     },
     200,
