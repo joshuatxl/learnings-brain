@@ -64,6 +64,20 @@ body {
   padding: 1px 5px;
   border-radius: 4px;
 }
+.a pre, .note-line pre {
+  margin: 0 0 0.85em;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.a pre:last-child, .note-line pre:last-child { margin-bottom: 0; }
+.a pre code, .note-line pre code {
+  background: none;
+  color: var(--ink);
+  padding: 0;
+  white-space: pre;
+}
 
 .citations { margin-top: 10px; font-size: 13px; color: var(--ink-soft); }
 .citations summary { cursor: pointer; color: var(--ink-faint); user-select: none; }
@@ -71,7 +85,19 @@ body {
 .cite-group { margin: 8px 0 0; padding-left: 2px; }
 .cite-group h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); font-weight: 600; }
 .chip { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 3px 10px; margin: 0 6px 6px 0; font-size: 12.5px; }
-.note-line { margin: 0 0 4px; }
+.chip code { font: 11.5px/1 ui-monospace, "SF Mono", Consolas, monospace; background: transparent; padding: 0; }
+.note-line { margin: 0 0 10px; }
+.note-line p { margin: 0 0 0.6em; }
+.note-line p:last-child, .note-line ul:last-child { margin-bottom: 0; }
+.note-line ul { margin: 0 0 0.6em; padding-left: 1.2em; }
+.note-line li { margin: 0 0 0.2em; }
+.note-line code {
+  font: 12px/1.4 ui-monospace, "SF Mono", Consolas, monospace;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
 
 .composer {
   position: sticky;
