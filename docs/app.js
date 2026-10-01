@@ -29,16 +29,46 @@ function inlineMarkdown(escaped) {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 }
 
-// Answers are plain prose, occasional bullet lists, **bold** and `code` --
-// not full markdown (no links, tables, nested lists), so a small hand-rolled
-// renderer covers it without pulling in a library.
+// A single short string (e.g. a fact chip) -- inline markdown only, and a
+// leading "#"/"##" is treated as emphasis (bold), not a real heading, since
+// there's no room for heading styles in a compact pill.
+function renderInline(text) {
+  const heading = (text || "").trim().match(/^#{1,6}\s+(.+)/);
+  if (heading) return `<strong>${inlineMarkdown(escapeHtml(heading[1]))}</strong>`;
+  return inlineMarkdown(escapeHtml(text || ""));
+}
+
+// Answers and note citations are plain prose, occasional bullet lists,
+// "#"/"##" headings (rendered as bold, not real heading levels -- these are
+// short inline answers, not documents), **bold**, and `code` -- not full
+// markdown (no links, tables, nested lists), so a small hand-rolled renderer
+// covers it without pulling in a library.
 function renderAnswer(text) {
   const blocks = [];
   let list = null;
+  let code = null; // non-null while inside a ``` fenced code block
   for (const raw of (text || "").split("\n")) {
+    if (raw.trim().match(/^```/)) {
+      if (code === null) {
+        code = [];
+        list = null;
+      } else {
+        blocks.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+        code = null;
+      }
+      continue;
+    }
+    if (code !== null) {
+      code.push(raw); // preserve indentation verbatim; never markdown-processed
+      continue;
+    }
     const line = raw.trim();
+    const heading = line.match(/^#{1,6}\s+(.+)/);
     const bullet = line.match(/^[-*]\s+(.+)/);
-    if (bullet) {
+    if (heading) {
+      list = null;
+      blocks.push(`<p><strong>${inlineMarkdown(escapeHtml(heading[1]))}</strong></p>`);
+    } else if (bullet) {
       if (!list) blocks.push((list = []));
       list.push(`<li>${inlineMarkdown(escapeHtml(bullet[1]))}</li>`);
     } else {
@@ -46,6 +76,7 @@ function renderAnswer(text) {
       if (line) blocks.push(`<p>${inlineMarkdown(escapeHtml(line))}</p>`);
     }
   }
+  if (code !== null) blocks.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`); // unclosed fence
   return blocks.map((b) => (Array.isArray(b) ? `<ul>${b.join("")}</ul>` : b)).join("");
 }
 
@@ -61,7 +92,9 @@ function renderCitations(citations) {
     const group = el("div", "cite-group");
     group.appendChild(el("h4", null, "Facts"));
     for (const f of facts) {
-      group.appendChild(el("span", "chip", f.topic ? `${f.text} · ${f.topic}` : f.text));
+      const chip = el("span", "chip");
+      chip.innerHTML = f.topic ? `${renderInline(f.text)} · ${renderInline(f.topic)}` : renderInline(f.text);
+      group.appendChild(chip);
     }
     details.appendChild(group);
   }
@@ -69,7 +102,9 @@ function renderCitations(citations) {
     const group = el("div", "cite-group");
     group.appendChild(el("h4", null, "Notes"));
     for (const n of notes) {
-      group.appendChild(el("p", "note-line", n));
+      const note = el("div", "note-line");
+      note.innerHTML = renderAnswer(n);
+      group.appendChild(note);
     }
     details.appendChild(group);
   }
