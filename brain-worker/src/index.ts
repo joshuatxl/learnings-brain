@@ -159,6 +159,28 @@ async function askGemini(env: Env, prompt: string): Promise<string> {
   return text;
 }
 
+const MAX_ATTEMPTS = 3; // total tries before giving up, e.g. for a transient 503 "high demand"
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Retries askGemini on transient failures, up to MAX_ATTEMPTS total. A 429
+ * (rate limit) is never retried -- it won't clear within one request, and
+ * retrying would only spend more of an already-exhausted quota. */
+async function askGeminiWithRetry(env: Env, prompt: string): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await askGemini(env, prompt);
+    } catch (e) {
+      if (e instanceof GeminiError && e.status === 429) throw e;
+      if (attempt >= MAX_ATTEMPTS) throw e;
+      console.error(`askGemini attempt ${attempt} failed, retrying:`, (e as Error).message);
+      await sleep(500 * attempt);
+    }
+  }
+}
+
 function bulletList(items: string[]): string {
   return items.length ? items.map((i) => `- ${i}`).join("\n") : "(none)";
 }
@@ -204,7 +226,7 @@ async function handleAsk(request: Request, env: Env, origin: string): Promise<Re
 
   let answer: string;
   try {
-    answer = await askGemini(env, prompt);
+    answer = await askGeminiWithRetry(env, prompt);
   } catch (e) {
     if (e instanceof GeminiError && e.status === 429) {
       return json(
@@ -213,7 +235,7 @@ async function handleAsk(request: Request, env: Env, origin: string): Promise<Re
         origin
       );
     }
-    console.error("askGemini failed:", (e as Error).message);
+    console.error(`askGemini failed after ${MAX_ATTEMPTS} attempts:`, (e as Error).message);
     return json({ error: "Something went wrong generating an answer. Please try again later." }, 502, origin);
   }
 
