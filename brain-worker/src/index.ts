@@ -144,8 +144,11 @@ async function rerankEpisodes(env: Env, question: string, candidates: EpisodeChu
       contexts: candidates.map((c) => ({ text: c.text })),
       top_k: EPISODE_FINAL_K,
     });
-    const ranked = (res as any).response as { index: number; score: number }[];
-    return ranked.map((r) => candidates[r.index]);
+    // Despite the field being documented elsewhere as "index", Workers AI's own
+    // bundled types (node_modules/@cloudflare/workers-types) say the real field
+    // is "id" -- confirmed against the TypeError this produced when it was wrong.
+    const ranked = (res as any).response as { id: number; score: number }[];
+    return ranked.map((r) => candidates[r.id]).filter((c): c is EpisodeChunk => c !== undefined);
   } catch (e) {
     console.error("rerank failed, falling back to cosine order:", (e as Error).message);
     return candidates.slice(0, EPISODE_FINAL_K);
