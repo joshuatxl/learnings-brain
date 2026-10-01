@@ -20,12 +20,21 @@ export interface Env {
   GEMINI_API_KEY: string;
 }
 
-const TOP_K = 5;
+const TOP_K = 5; // facts: a short, already-deduplicated list -- a small topK is enough
 // Cosine similarity floor for a Vectorize match to count as relevant at all --
-// without this, topK always returns its 5 "closest" results even when none
+// without this, topK always returns its "closest" results even when none
 // are actually related to the question. Calibrated against real matches
 // (0.617-0.768) on this corpus; conservative enough not to cut genuine hits.
 const MIN_SCORE = 0.45;
+// Episodes (note chunks) get a wider first pass than facts: topK is widened well
+// past what we'd ever prompt with, so MIN_SCORE -- not an arbitrary "closest 5" --
+// decides what counts as a candidate. A reranker then picks the sharpest
+// EPISODE_FINAL_K out of however many clear that bar, so a broad question against
+// a growing note collection can't balloon the prompt just because many chunks
+// happen to pass the threshold.
+const EPISODE_CANDIDATE_K = 25;
+const EPISODE_FINAL_K = 8;
+const RERANK_MODEL = "@cf/baai/bge-reranker-base";
 const MAX_QUESTION_CHARS = 500;
 const MAX_OUTPUT_TOKENS = 400; // shorter cap = Gemini finishes generating sooner
 const RECENT_CHARS = 600; // most of a recent (not-matched) note that goes into the prompt
@@ -99,9 +108,10 @@ async function searchFacts(env: Env, vector: number[]): Promise<Fact[]> {
 }
 
 /** Each episodic vector is one chunk of a note, and its text travels in the
- * vector's metadata, so no D1 lookup is needed. */
-async function searchEpisodes(env: Env, vector: number[]): Promise<EpisodeChunk[]> {
-  const result = await env.EPISODES_INDEX.query(vector, { topK: TOP_K, returnMetadata: "all" });
+ * vector's metadata, so no D1 lookup is needed. topK is widened well past
+ * EPISODE_FINAL_K -- MIN_SCORE, not topK, decides what's a candidate. */
+async function candidateEpisodes(env: Env, vector: number[]): Promise<EpisodeChunk[]> {
+  const result = await env.EPISODES_INDEX.query(vector, { topK: EPISODE_CANDIDATE_K, returnMetadata: "all" });
   return result.matches.flatMap((m) => {
     if (m.score < MIN_SCORE) return [];
     const md = (m.metadata ?? {}) as Record<string, string | number>;
@@ -116,6 +126,35 @@ async function searchEpisodes(env: Env, vector: number[]): Promise<EpisodeChunk[
       },
     ];
   });
+}
+
+/** Cosine similarity (candidateEpisodes) compares the question and each chunk
+ * as two independently-computed vectors that never see each other. The
+ * reranker reads the question and each candidate's actual text together in
+ * one pass, so it judges relevance directly instead of through two compressed
+ * vectors -- more accurate, but too slow to run over the whole index, which is
+ * why it only sees the shortlist MIN_SCORE already narrowed down. Falls back
+ * to the cosine ordering on any failure, so a reranker hiccup degrades result
+ * quality rather than breaking the endpoint. */
+async function rerankEpisodes(env: Env, question: string, candidates: EpisodeChunk[]): Promise<EpisodeChunk[]> {
+  if (!candidates.length) return candidates;
+  try {
+    const res = await env.AI.run(RERANK_MODEL as any, {
+      query: question,
+      contexts: candidates.map((c) => ({ text: c.text })),
+      top_k: EPISODE_FINAL_K,
+    });
+    const ranked = (res as any).response as { index: number; score: number }[];
+    return ranked.map((r) => candidates[r.index]);
+  } catch (e) {
+    console.error("rerank failed, falling back to cosine order:", (e as Error).message);
+    return candidates.slice(0, EPISODE_FINAL_K);
+  }
+}
+
+async function searchEpisodes(env: Env, question: string, vector: number[]): Promise<EpisodeChunk[]> {
+  const candidates = await candidateEpisodes(env, vector);
+  return rerankEpisodes(env, question, candidates);
 }
 
 async function recentEpisodes(env: Env, n: number): Promise<Episode[]> {
@@ -202,7 +241,7 @@ async function handleAsk(request: Request, env: Env, origin: string): Promise<Re
   // instead of waiting for it — the two vector searches do need the
   // embedding and so start only once it resolves.
   const [vector, recent] = await Promise.all([embed(env, question), recentEpisodes(env, 3)]);
-  const [facts, chunks] = await Promise.all([searchFacts(env, vector), searchEpisodes(env, vector)]);
+  const [facts, chunks] = await Promise.all([searchFacts(env, vector), searchEpisodes(env, question, vector)]);
 
   // A recent note is redundant if one of its passages already matched, and is
   // capped so a long note can't bloat the prompt (a longer prompt is slower).
