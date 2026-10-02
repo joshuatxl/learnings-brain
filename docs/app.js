@@ -80,6 +80,17 @@ function renderAnswer(text) {
   return blocks.map((b) => (Array.isArray(b) ? `<ul>${b.join("")}</ul>` : b)).join("");
 }
 
+// A note citation starts with a "[date · title § heading]" source tag the
+// worker prepends (see brain-worker/src/index.ts matchedLines) -- rendered
+// bold and in the accent blue on its own line, with the note's own text
+// (still markdown-rendered) following below it.
+function renderNote(n) {
+  const match = (n || "").match(/^\[([^\]]+)\]\s*/);
+  if (!match) return renderAnswer(n);
+  const source = `<p class="cite-source">[${inlineMarkdown(escapeHtml(match[1]))}]</p>`;
+  return source + renderAnswer(n.slice(match[0].length));
+}
+
 function renderCitations(citations) {
   const facts = citations?.facts ?? [];
   const notes = citations?.notes ?? [];
@@ -103,7 +114,7 @@ function renderCitations(citations) {
     group.appendChild(el("h4", null, "Notes"));
     for (const n of notes) {
       const note = el("div", "note-line");
-      note.innerHTML = renderAnswer(n);
+      note.innerHTML = renderNote(n);
       group.appendChild(note);
     }
     details.appendChild(group);
