@@ -31,6 +31,7 @@ body {
 }
 .top h1 { margin: 0 0 8px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
 .tagline { margin: 0; color: var(--ink-soft); font-size: 14.5px; max-width: 56ch; }
+.tagline-sub { margin: 6px 0 0; color: var(--ink-faint); font-size: 13px; max-width: 56ch; }
 
 #thread { min-height: 120px; padding-bottom: 8px; }
 
@@ -87,6 +88,7 @@ body {
 .chip { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 3px 10px; margin: 0 6px 6px 0; font-size: 12.5px; }
 .chip code { font: 11.5px/1 ui-monospace, "SF Mono", Consolas, monospace; background: transparent; padding: 0; }
 .note-line { margin: 0 0 10px; }
+.cite-source { margin: 0 0 4px; font-weight: 700; color: var(--accent); }
 .note-line p { margin: 0 0 0.6em; }
 .note-line p:last-child, .note-line ul:last-child { margin-bottom: 0; }
 .note-line ul { margin: 0 0 0.6em; padding-left: 1.2em; }
@@ -132,19 +134,3 @@ body {
 
 .footnote { margin-top: 24px; font-size: 12.5px; color: var(--ink-faint); text-align: center; }
 .footnote a { color: inherit; }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #eceeee;
-    --ink-soft: #b7bac1;
-    --ink-faint: #797d87;
-    --paper: #16171a;
-    --card: #1e1f23;
-    --border: #2b2c31;
-    --accent: #6ea8fe;
-    --accent-soft: #16233a;
-    --danger: #e5897d;
-    --danger-soft: #2e1c1a;
-  }
-  #submit { color: #0b1220; }
-}
