@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from datetime import datetime, timezone
 
 from . import cloudflare as cf
@@ -84,15 +85,32 @@ def _similar_facts(pending: list[dict]) -> list[dict]:
     )
 
 
+_MAX_ATTEMPTS = 4  # total tries for a transient Gemini 5xx, e.g. a 503 "high demand"
+_RETRY_DELAY_S = 10  # grows with each attempt: 10s, 20s, 30s
+
+
 def _call_gemini(pending: list[dict], facts: list[dict]) -> list[dict]:
     from google import genai
+    from google.genai import errors
 
     notes = "\n".join(f"- [{p['created_at'][:10]}] {p['text']}" for p in pending)
     fact_lines = "\n".join(f"- ({f['id']}) {f['text']} [{f['topic'] or 'untagged'}]" for f in facts) or "(none yet)"
     prompt = _PROMPT.format(notes=notes, facts=fact_lines)
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    resp = client.models.generate_content(model=SUMMARY_MODEL, contents=prompt)
+    # Only server-side (5xx) errors are retried. A 4xx such as a 429 quota error
+    # won't clear within one run, so retrying it would just burn more quota. If
+    # every attempt fails the run still errors, and the notes stay pending for
+    # the next run.
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            resp = client.models.generate_content(model=SUMMARY_MODEL, contents=prompt)
+            break
+        except errors.ServerError as e:
+            if attempt == _MAX_ATTEMPTS:
+                raise
+            print(f"consolidate: Gemini {e.code}, retrying ({attempt}/{_MAX_ATTEMPTS})")
+            time.sleep(_RETRY_DELAY_S * attempt)
     raw = (resp.text or "").strip()
     raw = re.sub(r"^```(json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
     try:
