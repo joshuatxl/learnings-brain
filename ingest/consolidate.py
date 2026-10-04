@@ -33,10 +33,10 @@ Rules: standalone facts only (no "as mentioned above"), merge don't append,
 keep names/numbers/specifics, short topic tag (1-3 words, reuse an existing
 topic when it fits), no duplicate facts, no preamble.
 
-Respond with ONLY a JSON object: {"operations": [
-  {"op": "add"|"update"|"supersede"|"flag", "id": "<existing id or null>",
-   "text": "<fact text or conflict description>", "topic": "<topic or null>"}
-]}
+Respond with ONLY a JSON object: {{"operations": [
+  {{"op": "add"|"update"|"supersede"|"flag", "id": "<existing id or null>",
+   "text": "<fact text or conflict description>", "topic": "<topic or null>"}}
+]}}
 
 ## New notes
 {notes}

@@ -34,6 +34,12 @@ const MIN_SCORE = 0.45;
 // happen to pass the threshold.
 const EPISODE_CANDIDATE_K = 25;
 const EPISODE_FINAL_K = 8;
+// Reranker score floor (0-1), applied after reranking. The reranker always returns
+// EPISODE_FINAL_K results, so without a floor the tail of near-zero scores (~0.002)
+// still reached the prompt and the Sources list. Deliberately low: across 14 test
+// questions, correct but paraphrased matches scored as low as ~0.04 while noise sat
+// at ~0.003 or below. Re-check as the corpus grows.
+const EPISODE_RERANK_MIN_SCORE = 0.02;
 const RERANK_MODEL = "@cf/baai/bge-reranker-base";
 const MAX_QUESTION_CHARS = 500;
 const MAX_OUTPUT_TOKENS = 400; // shorter cap = Gemini finishes generating sooner
@@ -133,9 +139,11 @@ async function candidateEpisodes(env: Env, vector: number[]): Promise<EpisodeChu
  * reranker reads the question and each candidate's actual text together in
  * one pass, so it judges relevance directly instead of through two compressed
  * vectors -- more accurate, but too slow to run over the whole index, which is
- * why it only sees the shortlist MIN_SCORE already narrowed down. Falls back
- * to the cosine ordering on any failure, so a reranker hiccup degrades result
- * quality rather than breaking the endpoint. */
+ * why it only sees the shortlist MIN_SCORE already narrowed down. Results the
+ * reranker scores below EPISODE_RERANK_MIN_SCORE are dropped, so fewer than
+ * EPISODE_FINAL_K (or none) can come back. Falls back to the cosine ordering
+ * on any failure, so a reranker hiccup degrades result quality rather than
+ * breaking the endpoint. */
 async function rerankEpisodes(env: Env, question: string, candidates: EpisodeChunk[]): Promise<EpisodeChunk[]> {
   if (!candidates.length) return candidates;
   try {
@@ -148,7 +156,10 @@ async function rerankEpisodes(env: Env, question: string, candidates: EpisodeChu
     // bundled types (node_modules/@cloudflare/workers-types) say the real field
     // is "id" -- confirmed against the TypeError this produced when it was wrong.
     const ranked = (res as any).response as { id: number; score: number }[];
-    return ranked.map((r) => candidates[r.id]).filter((c): c is EpisodeChunk => c !== undefined);
+    return ranked
+      .filter((r) => r.score >= EPISODE_RERANK_MIN_SCORE)
+      .map((r) => candidates[r.id])
+      .filter((c): c is EpisodeChunk => c !== undefined);
   } catch (e) {
     console.error("rerank failed, falling back to cosine order:", (e as Error).message);
     return candidates.slice(0, EPISODE_FINAL_K);
