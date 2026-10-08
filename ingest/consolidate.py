@@ -1,9 +1,8 @@
-"""The gate + summariser: turn pending episodic notes into semantic facts,
-merging into what's already stored instead of appending duplicates.
+"""The gate + summariser turns pending episodic notes into semantic facts, merging
+into what's already stored instead of appending duplicates.
 
-Flow: gate checks pending count -> embed pending notes -> look up similar
-existing facts -> ask Gemini for add/update/supersede/flag operations ->
-apply them -> mark notes consolidated."""
+Flow: gate checks pending count -> embed pending notes -> look up similar existing facts
+-> ask Gemini for add/update/supersede/flag operations -> apply them -> mark notes consolidated."""
 from __future__ import annotations
 
 import hashlib

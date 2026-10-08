@@ -8,48 +8,43 @@
  * learnings/** on main. See ../README.md.
  */
 import skills from "../skills.md";
+import { buildFtsQuery, fuseByRank } from "./lexical";
 
 export interface Env {
   AI: Ai;
   DB: D1Database;
   FACTS_INDEX: VectorizeIndex;
   EPISODES_INDEX: VectorizeIndex;
+  ASK_LIMITER: RateLimit;
   ALLOWED_ORIGIN: string;
   MODEL: string;
   EMBED_MODEL: string;
   GEMINI_API_KEY: string;
 }
 
-const TOP_K = 5; // facts: a short, already-deduplicated list -- a small topK is enough
-// Cosine similarity floor for a Vectorize match to count as relevant at all --
-// without this, topK always returns its "closest" results even when none
-// are actually related to the question. Calibrated against real matches
-// (0.617-0.768) on this corpus; conservative enough not to cut genuine hits.
-const MIN_SCORE = 0.45;
-// Episodes (note chunks) get a wider first pass than facts: topK is widened well
-// past what we'd ever prompt with, so MIN_SCORE -- not an arbitrary "closest 5" --
-// decides what counts as a candidate. A reranker then picks the sharpest
-// EPISODE_FINAL_K out of however many clear that bar, so a broad question against
-// a growing note collection can't balloon the prompt just because many chunks
-// happen to pass the threshold.
-const EPISODE_CANDIDATE_K = 25;
-const EPISODE_FINAL_K = 8;
-// Reranker score floor (0-1), applied after reranking. The reranker always returns
-// EPISODE_FINAL_K results, so without a floor the tail of near-zero scores (~0.002)
-// still reached the prompt and the Sources list. Deliberately low: across 14 test
-// questions, correct but paraphrased matches scored as low as ~0.04 while noise sat
-// at ~0.003 or below. Re-check as the corpus grows.
-const EPISODE_RERANK_MIN_SCORE = 0.02;
-const RERANK_MODEL = "@cf/baai/bge-reranker-base";
-const MAX_QUESTION_CHARS = 500;
-const MAX_OUTPUT_TOKENS = 400; // shorter cap = Gemini finishes generating sooner
-const RECENT_CHARS = 600; // most of a recent (not-matched) note that goes into the prompt
+const TOP_K = 8; // Retrive top k number of facts (dsitilled notes) that have highest cosine similarity with the question
 
-// The deployed site is the only origin allowed in production. localhost is
-// also allowed so the page can be tested before it's published — this only
-// affects which origins a browser lets read the response; there's no write
-// path or auth for it to weaken.
-const DEV_ORIGIN_RE = /^https?:\/\/localhost(:\d+)?$/;
+const MIN_SCORE = 0.45; // Configure a cosine similarity floor; facts with a score below the floor are excluded from retrieval
+
+const EPISODE_CANDIDATE_K = 25; // Retrieve top k number of episode chunks that have the highest cosine similarity with the question for reranking
+
+const KEYWORD_CANDIDATE_K = 25; // Retrieve top k number of episode chunks that best match the question's words (BM25 keyword search)
+
+const RERANK_POOL = 30; // Maximum number of chunks, merged from vector and keyword search, sent to the reranker
+
+const EPISODE_FINAL_K = 8; // Maximum number of episode chunks kept for the response
+
+const EPISODE_RERANK_MIN_SCORE = 0.02; // Configure a reranker score floor; episodes scoring below it will be excluded from the response
+
+const RERANK_MODEL = "@cf/baai/bge-reranker-base"; // Configure the Cloudflare reranker model
+
+const MAX_QUESTION_CHARS = 500; //Configure maximum characters for questions. 
+
+const MAX_OUTPUT_TOKENS = 400; // Configure maximum output tokens for faster responses. 
+
+const RECENT_CHARS = 600;
+
+const DEV_ORIGIN_RE = /^https?:\/\/localhost(:\d+)?$/; // Match localhost with a port for local testing. 
 
 function allowedOrigin(env: Env, requestOrigin: string | null): string {
   if (requestOrigin === env.ALLOWED_ORIGIN || (requestOrigin && DEV_ORIGIN_RE.test(requestOrigin))) {
@@ -90,16 +85,17 @@ interface Episode {
   text: string;
 }
 
-/** One matching passage (chunk) of a note. */
 interface EpisodeChunk {
+  id: string; // "<entry id>:<chunk number>", the same id in Vectorize and the keyword table
   entryId: number;
   date: string;
   title: string;
   heading: string;
   text: string;
+  cosine?: number; // only set for chunks found by vector search
 }
 
-/** Vectorize returns fact ids only; fetch the facts themselves from D1. */
+// Vectorize returns fact ids; fetch facts from D1.
 async function searchFacts(env: Env, vector: number[]): Promise<Fact[]> {
   const result = await env.FACTS_INDEX.query(vector, { topK: TOP_K, returnMetadata: "none" });
   const ids = result.matches.filter((m) => m.score >= MIN_SCORE).map((m) => m.id);
@@ -113,9 +109,7 @@ async function searchFacts(env: Env, vector: number[]): Promise<Fact[]> {
   return rows.results ?? [];
 }
 
-/** Each episodic vector is one chunk of a note, and its text travels in the
- * vector's metadata, so no D1 lookup is needed. topK is widened well past
- * EPISODE_FINAL_K -- MIN_SCORE, not topK, decides what's a candidate. */
+// Each vector from an episode is one chunk of a note; no D1 lookup for the actual episode text is needed because the chunk text and heading are stored in the vector's metadata.
 async function candidateEpisodes(env: Env, vector: number[]): Promise<EpisodeChunk[]> {
   const result = await env.EPISODES_INDEX.query(vector, { topK: EPISODE_CANDIDATE_K, returnMetadata: "all" });
   return result.matches.flatMap((m) => {
@@ -124,26 +118,47 @@ async function candidateEpisodes(env: Env, vector: number[]): Promise<EpisodeChu
     if (!md.text) return [];
     return [
       {
+        id: m.id,
         entryId: Number(md.entry_id),
         date: String(md.created_at ?? ""),
         title: String(md.title ?? ""),
         heading: String(md.heading ?? ""),
         text: String(md.text),
+        cosine: m.score,
       },
     ];
   });
 }
 
-/** Cosine similarity (candidateEpisodes) compares the question and each chunk
- * as two independently-computed vectors that never see each other. The
- * reranker reads the question and each candidate's actual text together in
- * one pass, so it judges relevance directly instead of through two compressed
- * vectors -- more accurate, but too slow to run over the whole index, which is
- * why it only sees the shortlist MIN_SCORE already narrowed down. Results the
- * reranker scores below EPISODE_RERANK_MIN_SCORE are dropped, so fewer than
- * EPISODE_FINAL_K (or none) can come back. Falls back to the cosine ordering
- * on any failure, so a reranker hiccup degrades result quality rather than
- * breaking the endpoint. */
+// Keyword (BM25) search over the chunks table in D1. Catches exact terms (function names, acronyms) that vector search can miss.
+// If the table is missing or the query fails, returns nothing so vector search still answers on its own.
+async function keywordEpisodes(env: Env, question: string): Promise<EpisodeChunk[]> {
+  const match = buildFtsQuery(question);
+  if (!match) return [];
+  try {
+    const rows = await env.DB.prepare(
+      "SELECT id, entry_id, created_at, title, heading, text FROM chunks_fts WHERE chunks_fts MATCH ? " +
+        "ORDER BY bm25(chunks_fts, 0, 0, 0, 1.0, 2.0, 1.0, 1.0) LIMIT ?"
+    )
+      .bind(match, KEYWORD_CANDIDATE_K)
+      .all<{ id: string; entry_id: number; created_at: string; title: string; heading: string; text: string }>();
+    return (rows.results ?? []).map((r) => ({
+      id: r.id,
+      entryId: Number(r.entry_id),
+      date: String(r.created_at ?? ""),
+      title: r.title,
+      heading: r.heading,
+      text: r.text,
+    }));
+  } catch (e) {
+    console.error("keyword search failed, using vector search only:", (e as Error).message);
+    return [];
+  }
+}
+
+// Cosine similarity compares the question and each chunk. The reranker reads the question and each candidate vector's actual text together in one pass, so it judges relevance directly.
+// The reranker scores below EPISODE_RERANK_MIN_SCORE are dropped.
+// Falls back to the cosine ordering on any failure
 async function rerankEpisodes(env: Env, question: string, candidates: EpisodeChunk[]): Promise<EpisodeChunk[]> {
   if (!candidates.length) return candidates;
   try {
@@ -152,22 +167,23 @@ async function rerankEpisodes(env: Env, question: string, candidates: EpisodeChu
       contexts: candidates.map((c) => ({ text: c.text })),
       top_k: EPISODE_FINAL_K,
     });
-    // Despite the field being documented elsewhere as "index", Workers AI's own
-    // bundled types (node_modules/@cloudflare/workers-types) say the real field
-    // is "id" -- confirmed against the TypeError this produced when it was wrong.
+
     const ranked = (res as any).response as { id: number; score: number }[];
     return ranked
       .filter((r) => r.score >= EPISODE_RERANK_MIN_SCORE)
       .map((r) => candidates[r.id])
       .filter((c): c is EpisodeChunk => c !== undefined);
   } catch (e) {
+    // Only chunks that passed the cosine floor are kept, so keyword-only matches can't slip in unchecked.
     console.error("rerank failed, falling back to cosine order:", (e as Error).message);
-    return candidates.slice(0, EPISODE_FINAL_K);
+    return candidates.filter((c) => c.cosine !== undefined).slice(0, EPISODE_FINAL_K);
   }
 }
 
+// Vector search and keyword search run side by side, their results are merged by rank, and the reranker picks the best.
 async function searchEpisodes(env: Env, question: string, vector: number[]): Promise<EpisodeChunk[]> {
-  const candidates = await candidateEpisodes(env, vector);
+  const [semantic, keyword] = await Promise.all([candidateEpisodes(env, vector), keywordEpisodes(env, question)]);
+  const candidates = fuseByRank([semantic, keyword]).slice(0, RERANK_POOL);
   return rerankEpisodes(env, question, candidates);
 }
 
@@ -212,15 +228,13 @@ async function askGemini(env: Env, prompt: string): Promise<string> {
   return text;
 }
 
-const MAX_ATTEMPTS = 3; // total tries before giving up, e.g. for a transient 503 "high demand"
+const MAX_ATTEMPTS = 3; // total tries before giving up when encountering transient errors
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Retries askGemini on transient failures, up to MAX_ATTEMPTS total. A 429
- * (rate limit) is never retried -- it won't clear within one request, and
- * retrying would only spend more of an already-exhausted quota. */
+// Retries askGemini on transient errors, exceot 429 (rate-limit) errors
 async function askGeminiWithRetry(env: Env, prompt: string): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -239,6 +253,14 @@ function bulletList(items: string[]): string {
 }
 
 async function handleAsk(request: Request, env: Env, origin: string): Promise<Response> {
+  // Limit each visitor (by IP) to 5 questions per 60 seconds (set in wrangler.toml). Checked first so a
+  // flood is rejected before any embedding, search or Gemini work is done.
+  const visitor = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  const { success } = await env.ASK_LIMITER.limit({ key: visitor });
+  if (!success) {
+    return json({ error: "You're asking too quickly. Please wait a minute and try again." }, 429, origin);
+  }
+
   let body: { question?: unknown };
   try {
     body = await request.json();
@@ -251,22 +273,18 @@ async function handleAsk(request: Request, env: Env, origin: string): Promise<Re
     return json({ error: `The question must be under ${MAX_QUESTION_CHARS} characterss` }, 400, origin);
   }
 
-  // recentEpisodes doesn't need the embedding, so it can run alongside it
-  // instead of waiting for it — the two vector searches do need the
-  // embedding and so start only once it resolves.
+  // recentEpisodes don't need the embedding.
   const [vector, recent] = await Promise.all([embed(env, question), recentEpisodes(env, 3)]);
   const [facts, chunks] = await Promise.all([searchFacts(env, vector), searchEpisodes(env, question, vector)]);
 
-  // A recent note is redundant if one of its passages already matched, and is
-  // capped so a long note can't bloat the prompt (a longer prompt is slower).
+  // A recent note is redundant if one of its passages is already matched, and is capped so a long note cannot bloat the promp to Gemini
   const matchedNotes = new Set(chunks.map((c) => c.entryId));
   const matchedLines = chunks.map((c) => `[${c.date} · ${c.title}${c.heading ? ` § ${c.heading}` : ""}] ${c.text}`);
   const recentLines = recent
     .filter((e) => !matchedNotes.has(e.id))
     .map((e) => `[${e.created_at.slice(0, 10)}] ${e.text.slice(0, RECENT_CHARS)}`);
-  // Gemini sees both -- recency is genuinely useful context -- but only
-  // genuine similarity matches are shown as "Sources", so citations never
-  // list a note just because it happens to be new and unrelated.
+
+  // Gemini receives recent notes and matched responses, but only responses that genuinely match the question are shown as 'Sources'
   const episodeLines = [...matchedLines, ...recentLines];
 
   const factLines = facts.map((f) => `(${f.id}) ${f.text}${f.topic ? ` [${f.topic}]` : ""}`);

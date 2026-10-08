@@ -1,10 +1,8 @@
-"""The evaluation question set. Empty until there are real notes to write
-real questions against -- see ../README.md's Evaluation section for why.
+"""The evaluation question set. Empty as of 04.10.26 until test sets are added.
 
 expected_output is a reference answer, used only by the two metrics that need
-ground truth (ContextualPrecisionMetric, ContextualRecallMetric). Leave it
-None to skip just those two for a case and still get AnswerRelevancy and
-Faithfulness."""
+ground truth (ContextualPrecisionMetric, ContextualRecallMetric). Leave it None to skip
+just those two for a case and still get AnswerRelevancy and Faithfulness."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

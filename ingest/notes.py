@@ -1,7 +1,6 @@
 """Read learning notes from LEARNINGS_DIR. Each note is a markdown file,
-optionally with YAML frontmatter (date, tags). The file's repo-relative
-path is its stable identity; editing a file re-ingests it, deleting it
-removes it from episodic memory."""
+optionally with YAML frontmatter (date, tags). The file's repo-path is its
+stable identity. Editing a file re-ingests it, deleting it removes it from episodic memory."""
 from __future__ import annotations
 
 import hashlib

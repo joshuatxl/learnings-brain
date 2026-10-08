@@ -180,6 +180,68 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(set(self.fake.vectors), {f"{row['id']}:0"})
         self.assertEqual(self.fake.vectors[f"{row['id']}:0"]["metadata"]["text"], "Edited text that must end up in the index.")
 
+    def keyword_ids(self):
+        return {r["id"] for r in self.fake.d1_query("SELECT id FROM chunks_fts")}
+
+    def test_every_chunk_gets_a_keyword_row_with_the_same_id_as_its_vector(self):
+        self.write(LONG_NOTE)
+        sync.sync()
+        self.assertEqual(self.keyword_ids(), set(self.fake.vectors))
+
+    def test_keyword_rows_hold_the_llm_context_and_chunk_text(self):
+        self.write(LONG_NOTE)
+        fake_contexts = mock.Mock(side_effect=lambda note_text, chunks: [f"CTX-{i}" for i in range(len(chunks))])
+        with mock.patch.object(sync.ctx, "generate", fake_contexts):
+            sync.sync()
+        row = self.fake.d1_query("SELECT * FROM chunks_fts WHERE id LIKE '%:0'")[0]
+        self.assertEqual((row["title"], row["heading"], row["context"]), ("Long note", "Part one", "CTX-0"))
+        self.assertTrue(row["text"].startswith("Sentence number 0"))
+
+    def test_a_keyword_search_finds_the_chunk_containing_the_word(self):
+        self.write("# Security\n\n## Filters\n\nRow filters use USERPRINCIPALNAME to map users.\n\n## Other\n\nUnrelated text.")
+        sync.sync()
+        hits = self.fake.d1_query(
+            "SELECT heading FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts)", ['"userprincipalname"']
+        )
+        self.assertEqual([h["heading"] for h in hits], ["Filters"])
+
+    def test_keyword_search_stems_words(self):
+        self.write("# Notes\n\nConvolutions slide a filter across an image.")
+        sync.sync()
+        hits = self.fake.d1_query("SELECT id FROM chunks_fts WHERE chunks_fts MATCH ?", ['"convolution"'])
+        self.assertEqual(len(hits), 1)
+
+    def test_editing_to_a_shorter_note_removes_the_surplus_keyword_rows(self):
+        self.write(LONG_NOTE)
+        sync.sync()
+        self.write("Now just one short paragraph.")
+        sync.sync()
+        self.assertEqual(self.keyword_ids(), {f"{self.fake.row()['id']}:0"})
+
+    def test_deleting_a_note_removes_its_keyword_rows(self):
+        self.write(LONG_NOTE)
+        sync.sync()
+        os.remove(os.path.join("learnings", "a.md"))
+        sync.sync()
+        self.assertEqual(self.keyword_ids(), set())
+
+    def test_a_note_with_more_chunks_than_one_insert_holds_is_fully_indexed(self):
+        many = "# Big\n\n" + "\n\n".join(f"## Section {i}\n\nBody for section {i}." for i in range(30))
+        self.write(many)
+        sync.sync()
+        row = self.fake.row()
+        self.assertGreater(row["chunk_count"], sync._FTS_ROWS_PER_INSERT)
+        self.assertEqual(self.keyword_ids(), set(self.fake.vectors))
+
+    def test_failed_indexing_leaves_no_keyword_rows_and_is_retried(self):
+        self.write(LONG_NOTE)
+        self.fake.fail_next_embed = True
+        with self.assertRaises(RuntimeError):
+            sync.sync()
+        self.assertEqual(self.keyword_ids(), set())
+        sync.sync()
+        self.assertEqual(self.keyword_ids(), set(self.fake.vectors))
+
 
 class TitleTests(unittest.TestCase):
     def setUp(self):

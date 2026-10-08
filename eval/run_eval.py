@@ -1,5 +1,5 @@
 """Runs eval/dataset.py's questions against the live Worker and scores the
-results with DeepEval. Manual only -- see ../README.md's Evaluation section.
+results with DeepEval. Manual only, no automation through GitHub Actions.
 
 Usage:
     pip install -r requirements-eval.txt

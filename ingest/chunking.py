@@ -1,17 +1,15 @@
-"""Split a learning note into passages worth embedding separately.
+"""Split a learning note into passages for embedding.
 
 Two stages:
-  1. Cut at markdown headings, so a passage never straddles two sections and
-     each keeps its heading trail. (Hand-rolled rather than LangChain's
+  1. Cut at markdown headings, so a block of text never straddles two sections, and
+     each keeps its heading trail. Hand-rolled rather than LangChain's
      MarkdownHeaderTextSplitter, which strips every line's indentation and so
-     mangles Python in code blocks.)
-  2. LangChain's RecursiveCharacterTextSplitter re-splits any section longer
-     than CHUNK_SIZE on paragraph -> line -> sentence -> word boundaries,
-     repeating CHUNK_OVERLAP characters between neighbours so boundary
+     mangles Python in code blocks.
+  2. LangChain's RecursiveCharacterTextSplitter re-splits any section longer than CHUNK_SIZE
+     on paragraph -> line -> sentence -> word boundaries, repeating CHUNK_OVERLAP characters between neighbours so boundary
      sentences keep their context.
 
-A note shorter than CHUNK_SIZE with no headings comes back as one chunk, so
-short notes behave exactly as they would without chunking.
+A note shorter than CHUNK_SIZE with no headings comes back as one chunk.
 """
 from __future__ import annotations
 

@@ -1,6 +1,5 @@
-"""Central configuration. Secrets come from the environment only — the
-GitHub Action injects them from encrypted repo secrets; nothing here is a
-credential itself."""
+"""Central configuration. Secrets come from the environment only, nothing is stored here.
+GitHub Action injects them from encrypted repo secrets."""
 from __future__ import annotations
 
 import os
@@ -22,7 +21,7 @@ EMBED_BATCH = 32  # texts per Workers AI call
 # logic itself changes.
 CHUNK_SIZE = 1200
 CHUNK_OVERLAP = 150
-CHUNK_CONFIG = f"md-recursive-v2-llm-context:{CHUNK_SIZE}:{CHUNK_OVERLAP}"
+CHUNK_CONFIG = f"md-recursive-v3-llm-context-keyword:{CHUNK_SIZE}:{CHUNK_OVERLAP}"
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 SUMMARY_MODEL = "gemini-3.6-flash"

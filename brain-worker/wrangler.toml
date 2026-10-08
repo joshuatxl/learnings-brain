@@ -3,9 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Read-only Worker: serves POST /ask against the memory built by the
-# GitHub Action ingest pipeline. No write endpoints exist here on purpose —
-# see ../README.md.
+# The Cloudflare worker is read-only; serves POST/ask requests against the memory built by the GitHub Action ingest pipeline
 
 [ai]
 binding = "AI"
@@ -23,17 +21,26 @@ index_name = "brain-facts"
 binding = "EPISODES_INDEX"
 index_name = "brain-episodes"
 
+# Per-visitor limit on /ask: at most 5 questions per 60 seconds
+[[ratelimits]]
+name = "ASK_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 5
+  period = 60
+
 [vars]
-# Restrict CORS to the site origin once it's known.
+# Restrict CORS to the site origin
 ALLOWED_ORIGIN = "https://joshuatxl.github.io"
 MODEL = "gemini-3.6-flash"
 EMBED_MODEL = "@cf/baai/bge-small-en-v1.5"
 
-# Bundle skills.md into the Worker as a plain string import.
+# Bundle skills.md into the worker as a plain string file.
 [[rules]]
 type = "Text"
 globs = ["**/*.md"]
 fallthrough = true
 
-# Secrets (never set here — see ../README.md Phase 3):
+# Secrets (never saved in project files):
 #   npx wrangler secret put GEMINI_API_KEY
