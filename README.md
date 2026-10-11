@@ -6,6 +6,8 @@ from work, studies, and self-learning. The objective is to create a lasting
 'single source of truth' for everything I've learned, which
 can be easily retrieved through a chatbot.
 
+Access the second brain here: https://joshuatxl.github.io/learnings-brain/
+
 The architecture is inspired by Sean's AI Stories' YouTube video about
 AI Agent Harnesses and Loop Engineering (https://www.youtube.com/watch?v=GrNbuWWJYiI)
 with tweaks made to incorporate recursive chunking, hybrid retrieval (vector and keyword), 
