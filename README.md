@@ -10,7 +10,7 @@ The architecture is inspired by Sean's AI Stories' YouTube video about
 AI Agent Harnesses and Loop Engineering (https://www.youtube.com/watch?v=GrNbuWWJYiI)
 with tweaks made to incorporate recursive chunking, hybrid retrieval (vector and keyword), 
 functionality for flagging contradictions and superceeding outdated information, and
-evaluation using DeepEval.
+evaluation using  (https://deepeval.com/docs/introduction).
 
 This second brain differs from the typical ones in that it's designed to
 run on a Cloudflare vector database, not an Obsidian-based second brain that is
